@@ -249,12 +249,13 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
                         if (!uniquifiedAlleles.contains(cohortVC.getReference())) {
                             uniquifiedAlleles.remove(REF_ALLELE);
                             uniquifiedAlleles.add(cohortVC.getReference());
-                            variantContextBuilder.alleles(uniquifiedAlleles);
-                        //in cases of X0 Turner Syndrome genotypes, JointVC is right and Postprocess is wrong
-                        } else if (!uniquifiedAlleles.containsAll(cohortVCAlleles)) {
-                            uniquifiedAlleles.addAll(cohortVCAlleles);
+                            //in cases of X0 Turner Syndrome genotypes, JointVC is right and Postprocess is wrong
+                            if (!uniquifiedAlleles.containsAll(cohortVCAlleles)) {
+                                uniquifiedAlleles.addAll(cohortVCAlleles);
+                            }
                             variantContextBuilder.alleles(uniquifiedAlleles);
                         }
+
                     }
                 } else {
                     logger.warn("No matching cohort VC at " + segment.getContig() + ":" + segment.getStart());
