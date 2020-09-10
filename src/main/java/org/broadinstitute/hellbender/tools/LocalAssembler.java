@@ -36,7 +36,7 @@ public class LocalAssembler extends PairWalker {
     public static final byte QMIN = 25;
     public static final int MIN_THIN_OBS = 4;
     public static final int MIN_GAPFILL_COUNT = 3;
-    public static final int TOO_MANY_TRAVERSALS = 100000;
+    public static final int TOO_MANY_TRAVERSALS = 50000;
     public static final int MIN_SV_SIZE = 50;
 
     @Argument(fullName=StandardArgumentDefinitions.OUTPUT_LONG_NAME,
@@ -689,6 +689,10 @@ public class LocalAssembler extends PairWalker {
                     addTraversal(new Traversal(contigsList, true), traversalSet);
                 } else {
                     for ( final List<Contig> path : longestPaths ) {
+                        if ( path.isEmpty() ) {
+                            addTraversal(new Traversal(contigsList, true), traversalSet);
+                            continue;
+                        }
                         final List<Contig> extendedContigsList =
                                 new ArrayList<>(contigsList.size() + path.size());
                         extendedContigsList.addAll(contigsList);
@@ -867,9 +871,12 @@ public class LocalAssembler extends PairWalker {
         final Traversal traversal = allTraversals.get(traversalIdx);
         touched[traversalIdx] = true;
         final List<Traversal> downExtensions = new ArrayList<>();
-        walkTraversals(traversal, touched, traversalsByFirstContig, allTraversals, downExtensions);
+        final Set<Contig> startingContigSet = new HashSet<>();
+        walkTraversals(traversal, touched, startingContigSet, traversalsByFirstContig,
+                        allTraversals, downExtensions);
         final List<Traversal> upExtensions = new ArrayList<>();
-        walkTraversals(traversal.rc(), touched, traversalsByFirstContig, allTraversals, upExtensions);
+        walkTraversals(traversal.rc(), touched, startingContigSet, traversalsByFirstContig,
+                        allTraversals, upExtensions);
         for ( final Traversal down : downExtensions ) {
             for ( final Traversal up : upExtensions ) {
                 scaffolds.add(Traversal.combineOverlappers(down, up, traversal.getContigs().size()));
@@ -879,15 +886,19 @@ public class LocalAssembler extends PairWalker {
 
     private static void walkTraversals( final Traversal traversal,
                                         final boolean[] touched,
+                                        final Set<Contig> startingContigSet,
                                         final Map<Contig, List<Integer>> traversalsByFirstContig,
                                         final List<Traversal> allTraversals,
                                         final List<Traversal> extensions ) {
+        final Contig firstContig = traversal.getFirstContig();
         final List<Integer> indexList;
-        if ( traversal.isInextensible() ||
+        if ( startingContigSet.contains(firstContig) ||
+                traversal.isInextensible() ||
                 (indexList = traversalsByFirstContig.get(traversal.getLastContig())) == null ) {
             extensions.add(traversal);
             return;
         }
+        startingContigSet.add(firstContig);
         for ( int idx : indexList ) {
             final Traversal extension;
             if ( idx >= 0 ) {
@@ -898,9 +909,10 @@ public class LocalAssembler extends PairWalker {
                 extension = allTraversals.get(rcIdx).rc();
                 touched[rcIdx] = true;
             }
-            walkTraversals(Traversal.combine(traversal, extension), touched, traversalsByFirstContig,
-                            allTraversals, extensions );
+            walkTraversals(Traversal.combine(traversal, extension), touched, startingContigSet,
+                            traversalsByFirstContig, allTraversals, extensions );
         }
+        startingContigSet.remove(firstContig);
     }
 
     private static void removeTriviallyDifferentTraversals(
