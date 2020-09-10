@@ -250,11 +250,11 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
                             uniquifiedAlleles.remove(REF_ALLELE);
                             uniquifiedAlleles.add(cohortVC.getReference());
                             //in cases of X0 Turner Syndrome genotypes, JointVC is right and Postprocess is wrong
-                            if (!uniquifiedAlleles.containsAll(cohortVCAlleles)) {
-                                uniquifiedAlleles.addAll(cohortVCAlleles);
-                            }
-                            variantContextBuilder.alleles(uniquifiedAlleles);
                         }
+                        if (!uniquifiedAlleles.containsAll(cohortVCAlleles)) {
+                            uniquifiedAlleles.addAll(cohortVCAlleles);
+                        }
+                        variantContextBuilder.alleles(uniquifiedAlleles);
 
                     }
                 } else {
