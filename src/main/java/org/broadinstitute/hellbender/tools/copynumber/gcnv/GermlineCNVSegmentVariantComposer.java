@@ -243,10 +243,16 @@ public final class GermlineCNVSegmentVariantComposer extends GermlineCNVVariantC
                     copyAnnotationIfPresent(cohortVC, variantContextBuilder, GATKSVVCFConstants.SVLEN, GATKSVVCFConstants.SVLEN);
                     //the joint segmentation goes through a lot of trouble to correct genotypes for overlapping events
                     if (cohortVC.hasGenotype(sampleName)) {
-                        genotypeBuilder.alleles(cohortVC.getGenotype(sampleName).getAlleles());
+                        final Genotype genotype = cohortVC.getGenotype(sampleName);
+                        final List<Allele> cohortVCAlleles = genotype.getAlleles();
+                        genotypeBuilder.alleles(cohortVCAlleles);
                         if (!uniquifiedAlleles.contains(cohortVC.getReference())) {
                             uniquifiedAlleles.remove(REF_ALLELE);
                             uniquifiedAlleles.add(cohortVC.getReference());
+                            variantContextBuilder.alleles(uniquifiedAlleles);
+                        //in cases of X0 Turner Syndrome genotypes, JointVC is right and Postprocess is wrong
+                        } else if (!uniquifiedAlleles.containsAll(cohortVCAlleles)) {
+                            uniquifiedAlleles.addAll(cohortVCAlleles);
                             variantContextBuilder.alleles(uniquifiedAlleles);
                         }
                     }
