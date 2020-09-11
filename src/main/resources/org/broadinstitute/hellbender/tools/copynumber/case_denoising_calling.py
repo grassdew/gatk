@@ -1,4 +1,5 @@
 import os
+import random
 
 # set theano flags
 user_theano_flags = os.environ.get("THEANO_FLAGS")
@@ -213,9 +214,23 @@ if __name__ == "__main__":
         logger.info("A saved optimizer state was provided to use as starting point...")
         task.fancy_opt.load(args.input_opt_path)
 
-    # go!
-    task.engage()
-    task.disengage()
+    try:
+        # go!
+        task.engage()
+        task.disengage()
+    except gcnvkernel.ConvergenceError as err:
+        logger.info(err.message)
+        logger.info("Retrying inference one more time...")
+        # Make sure we have reproducible results
+        random.seed(inference_params.random_seed)
+        new_random_seed = random.randint(0, 2 ** 31 - 1)
+        inference_params.random_seed = new_random_seed
+        task = gcnvkernel.CaseDenoisingCallingTask(
+            denoising_config, calling_config, inference_params,
+            shared_workspace, initial_params_supplier, args.input_model_path)
+
+        task.engage()
+        task.disengage()
 
     # save calls
     gcnvkernel.io_denoising_calling.SampleDenoisingAndCallingPosteriorsWriter(
