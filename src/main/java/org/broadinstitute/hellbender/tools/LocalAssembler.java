@@ -36,7 +36,7 @@ public class LocalAssembler extends PairWalker {
     public static final byte QMIN = 25;
     public static final int MIN_THIN_OBS = 4;
     public static final int MIN_GAPFILL_COUNT = 3;
-    public static final int TOO_MANY_TRAVERSALS = 50000;
+    public static final int TOO_MANY_TRAVERSALS = 100000;
     public static final int MIN_SV_SIZE = 50;
 
     @Argument(fullName=StandardArgumentDefinitions.OUTPUT_LONG_NAME,
@@ -70,14 +70,14 @@ public class LocalAssembler extends PairWalker {
         List<ContigImpl> contigs = buildContigs(kmerAdjacencySet);
         connectContigs(contigs);
 
-        while ( removeThinContigs(contigs, kmerAdjacencySet) ) {}
+        removeThinContigs(contigs, kmerAdjacencySet);
         weldPipes(contigs);
         markComponents(contigs);
 
         if ( fillGaps(kmerAdjacencySet) ) {
             contigs = buildContigs(kmerAdjacencySet);
             connectContigs(contigs);
-            while ( removeThinContigs(contigs, kmerAdjacencySet) ) {}
+            removeThinContigs(contigs, kmerAdjacencySet);
             weldPipes(contigs);
             markComponents(contigs);
         }
@@ -281,59 +281,65 @@ public class LocalAssembler extends PairWalker {
         }
     }
 
-    private static boolean removeThinContigs( final List<ContigImpl> contigs,
-                                              final KmerSet<KmerAdjacency> kmerAdjacencySet ) {
-        for ( final Contig contig : contigs ) {
-            contig.setCut(false);
-            contig.setCutData(null);
-            contig.rc().setCutData(null);
-        }
+    private static void removeThinContigs( final List<ContigImpl> contigs,
+                                           final KmerSet<KmerAdjacency> kmerAdjacencySet ) {
+        boolean contigRemoved;
+        do {
+            final int nContigs = contigs.size();
+            final Map<Contig, CutData> cutDataMap = new HashMap<>(nContigs * 3);
 
-        for ( final Contig contig : contigs ) {
-            if ( contig.getCutData() != null ) continue;
-            contig.setCutData(new CutData());
-            int children = 0;
-            for ( final Contig nextContig : contig.getSuccessors() ) {
-                if ( nextContig.getCutData() == null ) {
-                    findCuts(nextContig, contig);
-                    children += 1;
+            for ( final ContigImpl contig : contigs ) {
+                if ( cutDataMap.containsKey(contig) ) {
+                    continue;
+                }
+
+                cutDataMap.put(contig, new CutData());
+                int children = 0;
+                for ( final Contig nextContig : contig.getSuccessors() ) {
+                    if ( !cutDataMap.containsKey(nextContig) ) {
+                        findCuts(nextContig, contig, cutDataMap);
+                        children += 1;
+                    }
+                }
+                for ( final Contig nextContig : contig.getPredecessors() ) {
+                    if ( !cutDataMap.containsKey(nextContig) ) {
+                        findCuts(nextContig, contig, cutDataMap);
+                        children += 1;
+                    }
+                }
+                if ( children >= 2 ) {
+                    contig.setCut(true);
                 }
             }
-            for ( final Contig nextContig : contig.getPredecessors() ) {
-                if ( nextContig.getCutData() == null ) {
-                    findCuts(nextContig, contig);
-                    children += 1;
+
+            contigRemoved = false;
+            final Iterator<ContigImpl> itr = contigs.iterator();
+            while ( itr.hasNext() ) {
+                final Contig contig = itr.next();
+                if ( contig.getMaxObservations() < MIN_THIN_OBS && !contig.isCut() ) {
+                    unlinkContig(contig, kmerAdjacencySet);
+                    itr.remove();
+                    contigRemoved = true;
+                    break;
                 }
             }
-            if ( children >= 2 ) {
-                contig.setCut(true);
-            }
-        }
-
-        for ( final Contig contig : contigs ) {
-            contig.setCutData(null);
-            contig.rc().setCutData(null);
-        }
-
-        return contigs.removeIf( tig -> {
-            if ( tig.getMaxObservations() < MIN_THIN_OBS && !tig.isCut() ) {
-                unlinkContig(tig, kmerAdjacencySet);
-                return true;
-            }
-            return false;
-        } );
+        } while ( contigRemoved );
     }
 
-    private static CutData findCuts( final Contig contig, final Contig parent ) {
+    private static CutData findCuts( final Contig contig,
+                                     final Contig parent,
+                                     final Map<Contig, CutData> cutDataMap ) {
         final CutData cutData = new CutData();
-        contig.setCutData(cutData);
+        cutDataMap.put(contig, cutData);
         for ( final Contig nextContig : contig.getSuccessors() ) {
-            if ( nextContig == parent ) continue;
-            CutData nextCutData = nextContig.getCutData();
+            if ( nextContig == parent ) {
+                continue;
+            }
+            CutData nextCutData = cutDataMap.get(nextContig);
             if ( nextCutData != null ) {
                 cutData.minVisitNum = Math.min(cutData.minVisitNum, nextCutData.visitNum);
             } else {
-                nextCutData = findCuts(nextContig, contig);
+                nextCutData = findCuts(nextContig, contig, cutDataMap);
                 cutData.minVisitNum = Math.min(cutData.minVisitNum, nextCutData.minVisitNum);
                 if ( nextCutData.minVisitNum >= cutData.visitNum ) {
                     contig.setCut(true);
@@ -341,12 +347,14 @@ public class LocalAssembler extends PairWalker {
             }
         }
         for ( final Contig nextContig : contig.getPredecessors() ) {
-            if ( nextContig == parent ) continue;
-            CutData nextCutData = nextContig.getCutData();
+            if ( nextContig == parent ) {
+                continue;
+            }
+            CutData nextCutData = cutDataMap.get(nextContig);
             if ( nextCutData != null ) {
                 cutData.minVisitNum = Math.min(cutData.minVisitNum, nextCutData.visitNum);
             } else {
-                nextCutData = findCuts(nextContig, contig);
+                nextCutData = findCuts(nextContig, contig, cutDataMap);
                 cutData.minVisitNum = Math.min(cutData.minVisitNum, nextCutData.minVisitNum);
                 if ( nextCutData.minVisitNum >= cutData.visitNum ) {
                     contig.setCut(true);
@@ -481,32 +489,30 @@ public class LocalAssembler extends PairWalker {
     private static void markCycles( final List<ContigImpl> contigs ) {
         for ( final Contig contig : contigs ) {
             contig.setCyclic(false);
-            contig.setCutData(null);
-            contig.rc().setCutData(null);
         }
 
-        final Deque<Contig> deque = new ArrayDeque<>(contigs.size());
+        final int nContigs = contigs.size();
+        final Deque<Contig> deque = new ArrayDeque<>(nContigs);
+        final Map<Contig, CutData> cutDataMap = new HashMap<>(nContigs * 3);
         for ( final Contig contig : contigs ) {
-            if ( contig.getCutData() == null ) {
-                markCyclesRecursion(contig, deque);
+            if ( !cutDataMap.containsKey(contig) ) {
+                markCyclesRecursion(contig, deque, cutDataMap);
             }
-        }
-
-        for ( final Contig contig : contigs ) {
-            contig.setCutData(null);
-            contig.rc().setCutData(null);
         }
     }
 
-    private static CutData markCyclesRecursion( final Contig contig, final Deque<Contig> deque ) {
+    private static CutData markCyclesRecursion( final Contig contig,
+                                                final Deque<Contig> deque,
+                                                final Map<Contig, CutData> cutDataMap ) {
         final CutData cutData = new CutData();
-        contig.setCutData(cutData);
+        cutDataMap.put(contig, cutData);
         deque.addFirst(contig);
 
         for ( final Contig successor : contig.getSuccessors() ) {
-            final CutData successorCutData = successor.getCutData();
+            final CutData successorCutData = cutDataMap.get(successor);
             if ( successorCutData == null ) {
-                final int recursionVisitNum = markCyclesRecursion(successor, deque).minVisitNum;
+                final int recursionVisitNum =
+                        markCyclesRecursion(successor, deque, cutDataMap).minVisitNum;
                 cutData.minVisitNum = Math.min(cutData.minVisitNum, recursionVisitNum);
             } else {
                 cutData.minVisitNum = Math.min(cutData.minVisitNum, successorCutData.visitNum);
@@ -516,7 +522,7 @@ public class LocalAssembler extends PairWalker {
         if ( cutData.visitNum == cutData.minVisitNum ) {
             Contig tig = deque.removeFirst();
             if ( tig == contig ) {
-                tig.getCutData().visitNum = Integer.MAX_VALUE;
+                cutDataMap.get(tig).visitNum = Integer.MAX_VALUE;
 
                 // single-vertex component -- cyclic only if self-referential
                 if ( tig.getSuccessors().contains(tig) ) {
@@ -525,7 +531,7 @@ public class LocalAssembler extends PairWalker {
             } else {
                 while ( true ) {
                     // kill cross-links
-                    tig.getCutData().visitNum = Integer.MAX_VALUE;
+                    cutDataMap.get(tig).visitNum = Integer.MAX_VALUE;
                     tig.setCyclic(true);
                     if ( tig == contig ) break;
                     tig = deque.removeFirst();
@@ -1569,8 +1575,6 @@ public class LocalAssembler extends PairWalker {
         void setCut( final boolean cut );
         boolean isCanonical();
         ContigImpl canonical();
-        CutData getCutData();
-        void setCutData( final CutData cutData );
     }
 
     public static final class ContigImpl implements Contig {
@@ -1586,7 +1590,6 @@ public class LocalAssembler extends PairWalker {
         private boolean cyclic;
         private boolean cut;
         private final Contig rc;
-        private CutData cutData;
 
         public ContigImpl( final KmerAdjacency firstKmerAdjacency ) {
             this.id = nContigs++;
@@ -1685,8 +1688,6 @@ public class LocalAssembler extends PairWalker {
         @Override public void setCut( final boolean cut ) { this.cut = cut; }
         @Override public boolean isCanonical() { return true; }
         @Override public ContigImpl canonical() { return this; }
-        @Override public CutData getCutData() { return cutData; }
-        @Override public void setCutData( final CutData cutData ) { this.cutData = cutData; }
         @Override public String toString() { return "c" + id; }
     }
 
@@ -1695,7 +1696,6 @@ public class LocalAssembler extends PairWalker {
         private final List<Contig> predecessors;
         private final List<Contig> successors;
         private final ContigImpl rc;
-        private CutData cutData;
 
         public ContigRCImpl( final ContigImpl contig ) {
             this.sequence = new SequenceRC(contig.getSequence());
@@ -1720,8 +1720,6 @@ public class LocalAssembler extends PairWalker {
         @Override public void setCut( final boolean cut ) { rc.setCut(cut); }
         @Override public boolean isCanonical() { return false; }
         @Override public ContigImpl canonical() { return rc; }
-        @Override public CutData getCutData() { return cutData; }
-        @Override public void setCutData( final CutData cutData ) { this.cutData = cutData; }
         @Override public String toString() { return rc.toString() + "RC"; }
     }
 
