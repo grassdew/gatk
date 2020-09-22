@@ -225,9 +225,18 @@ if __name__ == "__main__":
         random.seed(inference_params.random_seed)
         new_random_seed = random.randint(0, 2 ** 31 - 1)
         inference_params.random_seed = new_random_seed
+        # instantiate config classes
+        denoising_config = gcnvkernel.DenoisingModelConfig.from_args_dict(args_dict)
+        calling_config = gcnvkernel.CopyNumberCallingConfig.from_args_dict(args_dict)
+        inference_params = gcnvkernel.HybridInferenceParameters.from_args_dict(args_dict)
+
+        # instantiate and initialize the workspace
         shared_workspace = gcnvkernel.DenoisingCallingWorkspace(
             denoising_config, calling_config, modeling_interval_list,
             n_st, sample_names, sample_metadata_collection)
+
+        initial_params_supplier = gcnvkernel.DefaultDenoisingModelInitializer(
+            denoising_config, calling_config, shared_workspace)
         task = gcnvkernel.CaseDenoisingCallingTask(
             denoising_config, calling_config, inference_params,
             shared_workspace, initial_params_supplier, args.input_model_path)
