@@ -225,6 +225,9 @@ if __name__ == "__main__":
         random.seed(inference_params.random_seed)
         new_random_seed = random.randint(0, 2 ** 31 - 1)
         inference_params.random_seed = new_random_seed
+        shared_workspace = gcnvkernel.DenoisingCallingWorkspace(
+            denoising_config, calling_config, modeling_interval_list,
+            n_st, sample_names, sample_metadata_collection)
         task = gcnvkernel.CaseDenoisingCallingTask(
             denoising_config, calling_config, inference_params,
             shared_workspace, initial_params_supplier, args.input_model_path)
